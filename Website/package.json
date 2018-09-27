@@ -1,0 +1,32 @@
+{
+  "name": "emf_ghost",
+  "version": "0.0.1",
+  "description": "A visualisation tool for EMF_GHOST - The Arduino UNO EMF Scanner",
+  "engines": {
+    "node": "8.9.1"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "chart.js": "^2.7.2",
+    "ejs": "^2.5.6",
+    "express": "^4.15.2"
+  },
+  "devDependencies": {
+    "request": "^2.81.0",
+    "tape": "^4.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "keywords": [
+    "emf",
+    "heroku",
+    "node",
+    "diy"
+  ],
+  "license": "MIT"
+}

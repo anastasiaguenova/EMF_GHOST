@@ -1,0 +1,8 @@
+{
+  "name": "EMF_GHOST",
+  "description": "A visualisation tool for EMF_GHOST - The Arduino UNO EMF Scanner",
+  "repository": "",
+  "logo": "",
+  "keywords": ["node", "emf", "heroku"],
+  "image": ""
+}

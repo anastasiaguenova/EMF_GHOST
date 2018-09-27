@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+
+<!-- Библиотеки, които са нужни за изпълнение на командите по-долу 
+* Firebase.js предоставя достъп до Firebase Realtime Database и ни позволява да четем данни
+* Chart.js предоставя функционалност за визуализиране на данни
+-->
+<script src="https://www.gstatic.com/firebasejs/5.5.0/firebase.js"></script>            
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.2/Chart.js"></script>
+
+<script>
+  /* *
+  *  Инициализираме Firebase като изпращаме параметри, които могат да се намерят в 
+  *  https://console.firebase.google.com след създаване на нов проект. 
+  *  Съхраняваме тези параметри в променлива config, която после ще използваме
+  *  при инициализирането на връзка с Firebase. 
+  * */
+  var firebaseConfig = {
+    apiKey: "*************************************",
+    authDomain: "emf-ghost.firebaseapp.com",
+    databaseURL: "https://emf-ghost.firebaseio.com",
+    projectId: "emf-ghost",
+    storageBucket: "emf-ghost.appspot.com",
+    messagingSenderId: "**************************"
+  };
+
+  // Съхраняваме променлива за изминалите милисекунди от началото на четене на данни от Firebase
+  var milliseconds = 0;
+  // Изминалите секунди от началото на периода за визуализация (60 секунди) 
+  // Тези секунди ще бъдат визуализирани на графиката като стойности за координатата X
+  var seconds = 0; 
+  // Променлива, която да съхранява най-високата отчетена стойност
+  var highValue = 0; 
+  // Променлива, която да съхранява еквивилентната стойност във волтове на прочетената средна стойност от базата данни
+  var volts = 0;
+
+  // Инициализираме връзка с Firebase използвайки променливата config
+  firebase.initializeApp(firebaseConfig);    
+    // Създаваме референция към възела (node) "Average EMF Reading" в нашата Firebase база данни                             
+    var ref = firebase.database().ref("Average EMF Reading");    
+
+    /* *
+    *  Добавяме "слушател на събития" (event listener) към референцията към възела в нашата Firebase база данни
+    *  Настройваме слушателя да ни "известява" когато нов възел, който е "пряк наследник" е добавен (child node added)
+    *  Този слушател ще ни предостави статична стойност (snapshot) на новия възел, който е пряк наследник (child)
+    *  Командите в блока код ще се изпълняват всеки път, когато бъде добавен нов възел, който е пряк наследник (child)
+    *  При първоначално пускане на програмата тя сваля всички данни от базата данни (ако има такива), 
+    *  като по този начин показва правилни стойности за време, дори и сайтът да е отворен след като проектът вече е работил
+    *  известно време. 
+    * */
+    ref.on('child_added', function(snapshot) {
+      // Съхраняваме стойността на snapshot.val() в променлива, за да не трябва всеки път да я достъпваме чрез функцията val(). 
+      var snapshotVal = snapshot.val();
+
+      // Взимаме референция към обект с id = "average" от нашия HTML код и приравняваме неговия вътрешен HTML към стойността на новия възел
+      document.getElementById("average").innerHTML = snapshotVal;
+
+      // Изчисляваме еквивилентната стойност във волтове на прочетената средна стойност от базата данни
+      volts = Math.round(snapshotVal * (5 / 1023) * 100) / 100;
+
+      // Визуализираме изчислената стойност в HTML елемент с id = "volts"
+      document.getElementById("volts").innerHTML = volts;
+
+      /* * 
+      *  В случай, че текущата отчетена средна стойност е по-висока от предишната, приравняваме 
+      *  текущата най-висока стойност към текущата отчетена средна стойност.
+      *  За да направим проверката, трябва да превърнем стойността на snapshotVal в цяло число с помощта на функция
+      *  parseInt(); 
+      * */
+      if(parseInt(snapshotVal) > highValue){
+        highValue = snapshotVal;
+        document.getElementById("high").innerHTML = highValue;
+      }
+
+      /* * 
+      *  Добавяме стойността на новия възел, който е пряк наследник (child) към нашата Chart.js графика, използвайки window.myLine.  
+      *  Като стойност за координатата Х, всеки десети път подаваме променливата seconds, а през останалото време "."
+      *  Като стойност за координатата Y подаваме стойността на новия възел, който е пряк наследник (child)
+      * */
+      if((seconds % 1) == 0){
+        addData(window.myLine, seconds, snapshotVal);
+      } else {
+        addData(window.myLine, ".", snapshotVal);
+      }
+      
+      // Изчисляваме новата стойност на изминалите секунди от текущия период на визуализация (60 секунди)
+      seconds = Math.round((seconds + 0.1) * 10) / 10;
+
+      /* * 
+      *  В случай, че секундите надвишат 59.9 започваме нов период на визуализация. 
+      *  Предприемаме тези действия, за да не претрупваме координатата Х с трицифрени (и повече) стойности
+      *  Като надежден източник на информация за изминалото време от началото на отчитането на данни, потребителят може
+      *  да се обърне към часовника, визуализиран с HTML елемент с id="time". 
+      * */
+      if(seconds > 59.9){
+        seconds = 0;
+      }
+
+      // Обновяваме стойността на променливата milliseconds, така че да отрази изминалото време между записи - 100 милисекунди
+      milliseconds += 100;
+      // Изчисляваме наново до тук изминалото време и го визуализираме (обновяваме)
+      updateTime(milliseconds);
+
+      /* * 
+      *  За да визуализира данни в реално време, нашата графика трябва да премахва "стари" стойности  
+      *  Към момента визуализираме 20 стойности на графиката и всички по-стари стойности се премахват чрез функцията removeData(Chart.js chart)
+      *  Взимаме текущия брой записи в графиката от window.myLine.data.labels.length и ги сравняваме с 20
+      * */
+      if(window.myLine.data.labels.length > 20){
+        removeData(window.myLine);
+      }
+    });
+
+  /* * 
+  *  Създаване на променлива с конфигурации за графиката за визуализиране на данни  
+  *  Файлът с конфигурации е създаден според инструкциите на Chart.js
+  *  http://www.chartjs.org/docs/latest/axes/styling.html 
+  * */
+  var chartConfig = {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: '',
+        backgroundColor: "rgba(71, 7, 137, 1)",
+        borderColor: "rgba(115, 11, 218)",
+        data: [],
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      title: {
+        display: true,
+        text: 'EMF Ghost Live Reading'
+      },
+      tooltips: {
+        enabled: false,
+        mode: 'index',
+        intersect: false,
+      },
+      legend:{
+        labels:{
+          defaultFontColor: "#FFFFFF",
+        }
+      },
+      hover: {
+        mode: 'nearest',
+        intersect: true
+      },
+      scales: {
+        xAxes: [{
+          display: true,
+          scaleLabel: {
+            display: true,
+            labelString: 'Time'
+          }
+        }],
+        yAxes: [{
+          display: true,
+          scaleLabel: {
+            display: true,
+            labelString: 'Value'
+          }
+        }]
+      }
+    }
+  };
+
+  /* *
+  *  Функция, която инициализира графиката myLine при зареждане на страницата 
+  * */
+  window.onload = function() {
+    var ctx = document.getElementById('myChart').getContext('2d');
+    window.myLine = new Chart(ctx, chartConfig);
+  };
+
+  /* *
+  *  Функция, която добавя данни към графиката myLine
+  * 
+  *  Параметри
+  *  ................................................
+  *  chart  = графиката, към която ще добавяме данни
+  *  label  = данните за координатата Х
+  *  data   = данните за координатата Y
+  * */
+  function addData(chart, label, data) {
+    // Добавяме нови данни за координатата X към chart.data.labels с командата push(label)
+    chart.data.labels.push(label);
+    // Към всеки набор от данни (към текущия момент е само един) добавяме новите данни за координатата Y
+    chart.data.datasets.forEach((dataset) => {
+        dataset.data.push(data);
+    });
+    // Обновяваме графиката, за да отразим новодобавените данни
+    chart.update();
+  }
+  
+  /* *
+   *  Функция, която премахва данни от графиката myLine
+   * 
+   *  Параметри
+   *  ................................................
+   *  chart  = графиката, от която която ще премахваме данни
+   * */
+  function removeData(chart) {
+    // Използваме функцията splice(позиция, брой елементи за премахване), за да премахнем един елемент от началото на масива (0)
+    chart.data.labels.splice(0,1);
+    // От всеки набор от данни (към текущия момент е само един) премахваме един елемент от началото 
+    chart.data.datasets.forEach((dataset) => {
+        dataset.data.splice(0,1);
+    });
+    // Обновяваме графиката, за да отразим новия набор от данни след премахване на един елемент
+    chart.update();
+  }
+
+  /* *
+   *  Функция, изчислява и обновява изминалото време от началото
+   *  отчитане на данни. 
+   * 
+   *  Бележка: Часовникът не показва реално време, а показва
+   *  времето, в което са били отчетени данните, които в момента се
+   *  визуализират на графиката. Тъй като неизбежно има забавяне от писането
+   *  и четенето на данни от Firebase Realtime Database, решихме да предоставим
+   *  на потребителите визуализиране в "реално" време дотолкова, доколкото 
+   *  времето на отчитане на данни съответства на времето, визуализирано 
+   *  на сайта. Според нас, това предоставя на потребителите реалистична 
+   *  и полезна визуализация. 
+   * 
+   *  Параметри
+   *  ................................................
+   *  milliseconds  = изминалите милисекунди от началото на измерването
+   * */
+  function updateTime(milliseconds){
+    // Изчисляваме изминалото време превръщайки милисекундите в секунди, минути и часове
+    var seconds = parseInt((milliseconds / 1000) % 60);
+    var minutes = parseInt((milliseconds / (1000*60)) % 60);
+    var hours   = parseInt((milliseconds / (1000*60*60)) % 24);
+
+    // Визуализираме новото време в HTML обект с id="time"
+    document.getElementById("time").innerHTML = (hours + ":" + minutes + ":" + seconds);
+  }
+</script>
+
+<head>    
+  <!-- Основни параметри на страницата
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta charset="utf-8">
+  <title>EMF_GHOST Project Page</title>
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <!-- Мета-данни специфични за мобилни устройства
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Шрифт
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link href="//fonts.googleapis.com/css?family=Raleway:400,300,600" rel="stylesheet" type="text/css">
+
+  <!-- CSS
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link rel="stylesheet" type="text/css" href="/stylesheets/normalize.css">
+  <link rel="stylesheet" type="text/css" href="/stylesheets/skeleton.css">
+
+  <!-- Favicon
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
+</head>
+
+<body>
+  <!-- Този код е структуриран спрямо инструкциите на Skeleton.css  -->
+  <div class="docs-section">
+    <div class="container">
+      <!-- Заглавен ред -->
+      <div class="row">
+          <h1>EMF_GHOST</h1>
+      </div>
+      <!-- Ред за допълнителни данни -->
+      <div class="row">
+        <table class="u-full-width">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Average</th>
+              <th>Volts</th>
+              <th>High</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="time"></td>
+              <td id="average"></td>
+              <td id="volts"></td>
+              <td id="high"></td>
+            </tr>
+          </tbody>
+        </table>          
+      </div>
+      <!-- Ред за визуализация на данни в реално време -->
+      <div class="row">
+          <div class="colored-chart-container">
+              <canvas id="myChart"></canvas>
+          </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
